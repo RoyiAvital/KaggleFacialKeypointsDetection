@@ -38,39 +38,43 @@ testImageFileName           = 'tTestImage.mat';
 load([dataFolderPath, refImageFileName]); %<! tRefImage
 load([dataFolderPath, refFeaturesCoordFileName]); %<! tRefFeaturesCoord
 load([dataFolderPath, featuresNameFileName]); %<! cFeaturesName
-load([dataFolderPath, testImageFileName]); %<! cFeaturesName
 
 
 %% Analysis Settings
 
 generateReflectedImages = OFF;
-trainImagesRatio        = 0.95;
 normalizeImage          = ON;
 
 % Neural Network Settings
-vHiddenLayesSize    = [100, 25];
-trainFcn            = 'trainrp'; %<! Resilient Backpropagation
-% trainFcn            = 'trainscg'; %<! Scaled Conjugate Gradient
+vHiddenLayesSize    = [100, 25, 10];
+% trainFcn            = 'trainrp'; %<! Resilient Backpropagation
+trainFcn            = 'trainscg'; %<! Scaled Conjugate Gradient
 % trainFcn            = 'traingdx'; %<! Variable Learning Rate Gradient Descent
 % trainFcn            = 'traingdm'; %<! Gradient Descent with Momentum
 % trainFcn            = 'traingd'; %<! Gradient Descent
-transferFcn         = 'tansig';
-% transferFcn         = 'logsig';
+% transferFcn         = 'tansig';
+transferFcn         = 'logsig';
 % transferFcn         = 'poslin'; %<! RELU
-weightsRegFactr     = 0.01;
-numFails            = 50;
-numEpochs           = 500;
+weightsRegFactr     = 0.035;
+numFails            = 500;
+numEpochs           = 2500;
 useGpu              = OFF;
+
+trainRatio      = 0.80;
+validationRatio = 0.2;
+testRatio       = 0.0;
+
+% Test Data
+runTest = ON;
 
 
 %% Data Parameters & Pre Processing
 
 numFeatures = size(tRefFeaturesCoord, 1);
+numCoord    = size(tRefFeaturesCoord, 2);
 numImages   = size(tRefFeaturesCoord, 3);
 numRows     = size(tRefImages, 1);
 numCols     = size(tRefImages, 2);
-
-numTestImages = size(tTestImage, 3);
 
 if(generateReflectedImages == ON)
     tRefImages(:, :, (2 * numImages))           = 0;
@@ -79,7 +83,7 @@ if(generateReflectedImages == ON)
     for ii = 1:numImages
         tRefImages(:, :, (ii + numImages))          = fliplr(tRefImages(:, :, ii));
         tRefFeaturesCoord(:, 1, (ii + numImages))   = (numCols + 1) - tRefFeaturesCoord(:, 1, ii);
-        tRefFeaturesCoord(:, 1, (ii + numImages))   = tRefFeaturesCoord(:, 2, ii);
+        tRefFeaturesCoord(:, 2, (ii + numImages))   = tRefFeaturesCoord(:, 2, ii);
     end
     
     numImages = 2 * numImages;
@@ -92,8 +96,6 @@ if(normalizeImage == ON)
         tRefImages(:, :, ii) = mRefImage;
     end
 end
-
-
 
 
 %% Build Neural Network
@@ -111,11 +113,15 @@ hRegNet.performParam.regularization = weightsRegFactr;
 hRegNet.trainParam.max_fail = numFails;
 hRegNet.trainParam.epochs   = numEpochs;
 
+hRegNet.divideParam.trainRatio  = trainRatio;
+hRegNet.divideParam.valRatio    = validationRatio;
+hRegNet.divideParam.testRatio   = testRatio;
+
 
 %% Train the Network
 
 mDataSamples    = reshape(tRefImages(:, :, :), [(numRows * numCols), numImages]); %<! Each Example as a Column
-mRegVal         = reshape(tRefFeaturesCoord ./ [numCols, numRows], [(2 * numFeatures), numImages]);
+mRegVal         = reshape(tRefFeaturesCoord ./ [numCols, numRows], [(numCoord * numFeatures), numImages]);
 
 % Configure Net
 hRegNet = configure(hRegNet, mDataSamples, mRegVal);
@@ -139,7 +145,7 @@ save([dataFolderPath, 'RegNetData_', trainPerfString, '_', validPerfString, '_',
 
 % Display Training
 figure();
-plotperform(hTrainRecord);
+plotperform(sTrainRecord);
 
 % Display Train Result
 imageIdx    = randi([1, numImages], [1, 1]);
@@ -154,19 +160,38 @@ imshow(tRefImages(:, :, imageIdx));
 hold('on');
 plot(mPredFeatureCoord(:, 1), mPredFeatureCoord(:, 2), '*');
 
-% Display Test Result
-imageIdx    = randi([1, numTestImages], [1, 1]);
-mTestImage  = tTestImage(:, :, imageIdx);
-mTestImage  = (mTestImage - min(mTestImage(:))) ./ (max(mTestImage(:)) - min(mTestImage(:)));
 
-mPredFeatureCoord = hRegNet(mTestImage(:));
-mPredFeatureCoord = reshape(mPredFeatureCoord, [numFeatures, 2]);
-mPredFeatureCoord = mPredFeatureCoord .* [numCols, numRows];
+%% Prediction
 
-figure();
-imshow(tRefImages(:, :, imageIdx));
-hold('on');
-plot(mPredFeatureCoord(:, 1), mPredFeatureCoord(:, 2), '*');
+if(runTest)
+    
+    load([dataFolderPath, testImageFileName]); %<! tTestImage
+    numTestImages = size(tTestImage, 3);
+    
+    if(normalizeImage == ON)
+        for ii = 1:numTestImages
+            mTestImage = tTestImage(:, :, ii);
+            mTestImage = (mTestImage - min(mTestImage(:))) ./ (max(mTestImage(:)) - min(mTestImage(:)));
+            tTestImage(:, :, ii) = mTestImage;
+        end
+    end
+    
+    mDataSamples    = reshape(tTestImage, [(numRows * numCols), numTestImages]); %<! Each Example as a Column
+    
+    tPredtFeaturesCoord = hRegNet(mDataSamples);
+    tPredtFeaturesCoord = reshape(tPredtFeaturesCoord, [numFeatures, numCoord, numTestImages]);
+    tPredtFeaturesCoord = tPredtFeaturesCoord .* [numCols, numRows];
+    
+    % Display Test Result
+    imageIdx    = randi([1, numTestImages], [1, 1]);
+    figure();
+    imshow(tTestImage(:, :, imageIdx));
+    hold('on');
+    plot(tPredtFeaturesCoord(:, 1, imageIdx), tPredtFeaturesCoord(:, 2, imageIdx), '*');
+    
+    save([dataFolderPath, 'RegNetData_', trainPerfString, '_', validPerfString, '_', testPerfString], 'hRegNet', 'sTrainRecord', 'tPredtFeaturesCoord');
+    
+end
 
 
 %% Restore Defaults
