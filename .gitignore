@@ -1,0 +1,30 @@
+# Windows Files
+
+# Media Files
+*.png
+*.jpg
+*.bmp
+*.tif
+*.avi
+*.mp4
+
+# Documnets
+*.docx
+*.doc
+*.xlsx
+*.xls
+*.pptx
+*.ppt
+*.pdf
+
+# MATLAB IDE / Compiler / Coder
+*App/
+*.asv
+
+# Compilation Files:
+*.obj
+*.pdb
+
+# Data Files
+Data/*.csv
+
