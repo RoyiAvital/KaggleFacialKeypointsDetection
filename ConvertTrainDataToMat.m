@@ -1,9 +1,13 @@
-% Convert Data to MAT
+% Convert Data to MATLAB (MAT) Format
 % Remarks:
 %   1.  sa
 % TODO:
-% 	1.  ds
+% 	1.  Add vector of number of images per feature to desginate each image
+%       for validity for training for specific feature.
 % Release Notes
+% - 1.1.000     04/12/2017  Royi Avital
+%   *   Added 'mTrainFeatureValid' to flag which image is valid for which
+%       feature training.
 % - 1.0.000     23/03/2017  Royi Avital
 %   *   First release.
 %
@@ -13,6 +17,8 @@
 run('InitScript.m');
 
 addpath(genpath('./AuxiliaryFunctions'));
+
+INVALID_VAL = -999;
 
 figureIdx           = 0;
 figureCounterSpec   = '%04d';
@@ -35,14 +41,19 @@ imageDataIdx = ((2 * numFeatures) + 1); %<! X, Y per Features, Image Data
 
 %% Training Data
 
-cRawData = csvimport([dataFolderPath, trainDataFileName]);
-numImages = size(cRawData, 1) - 1; %<! Header row
+hCsvParsingTimer    = tic();
+cRawData            = csvimport([dataFolderPath, trainDataFileName]);
+csvParsingTime      = toc(hCsvParsingTimer);
 
-cFeaturesName = cRawData(1, (1:(2 * numFeatures)));
-cFeaturesName = cFeaturesName(:);
+disp(['Parsing CSV Run Time - ', num2str(csvParsingTime), ' [Sec]']);
 
-tRefImages          = zeros([numRows, numCols, numImages], 'single'); %<! Data is in UINT8
-tRefFeaturesCoord   = zeros([numFeatures, 2, numImages], 'single'); %<! [featureIdx, imageIdx, xyIdx]
+numImages       = size(cRawData, 1) - 1; %<! Header row
+cFeaturesName   = cRawData(1, (1:(2 * numFeatures)));
+cFeaturesName   = cFeaturesName(:);
+
+tTrainImages        = zeros([numRows, numCols, numImages], 'single'); %<! Data is in UINT8
+tTrainFeaturesCoord = zeros([numFeatures, 2, numImages], 'single'); %<! [featureIdx, xyIdx, imageIdx]
+mTrainFeatureFlag   = ones([numFeatures, numImages]);
 
 runTime = 0;
 
@@ -55,20 +66,21 @@ for ii = 1:numImages
             for iRow = 1:numRows
                 for jCol = 1:numCols
                     pxIdx = ((iRow - 1) * numCols) + jCol;
-                    tRefImages(iRow, jCol, ii) = single(str2double(cImageData{pxIdx})) / 255;
+                    tTrainImages(iRow, jCol, ii) = single(str2double(cImageData{pxIdx})) / 255;
                 end
             end
         elseif(~isempty(cRawData{imageIdx, jj}))
             featureIdx = ceil(jj / 2);
             coordIx = mod(jj, 2) + ((1 - mod(jj, 2)) * 2);
             if(ischar(cRawData{imageIdx, jj}))
-            tRefFeaturesCoord(featureIdx, coordIx, ii) = single(str2double(cRawData{imageIdx, jj}));
+                tTrainFeaturesCoord(featureIdx, coordIx, ii) = single(str2double(cRawData{imageIdx, jj}));
             end
             if(isnumeric(cRawData{imageIdx, jj}))
-                tRefFeaturesCoord(featureIdx, coordIx, ii) = single(cRawData{imageIdx, jj});
+                tTrainFeaturesCoord(featureIdx, coordIx, ii) = single(cRawData{imageIdx, jj});
             end
         else
-            tRefFeaturesCoord(featureIdx, coordIx, ii) = single(0);
+            tTrainFeaturesCoord(featureIdx, coordIx, ii) = single(INVALID_VAL);
+            mTrainFeatureFlag(featureIdx, ii) = 0; %<! Image is invalid for training on this feature
         end
     end
     procImagTime = toc(hProcImageTimer);
@@ -82,19 +94,30 @@ end
 
 vInvalidImageIdx = [];
 for ii = 1:numImages
-    if(any(tRefFeaturesCoord(:, :, ii) == 0))
+    mTrainFeaturesCoord = tTrainFeaturesCoord(:, :, ii);
+    if(any(mTrainFeaturesCoord(:) == INVALID_VAL))
         vInvalidImageIdx = [vInvalidImageIdx, ii];
     end
 end
 
-tRefFeaturesCoord(:, :, vInvalidImageIdx) = [];
-tRefImages(:, :, vInvalidImageIdx)        = [];
+tTrainFeaturesCoordValid    = tTrainFeaturesCoord;
+tTrainImagesValid           = tTrainImages;
 
-
+tTrainFeaturesCoordValid(:, :, vInvalidImageIdx) = [];
+tTrainImagesValid(:, :, vInvalidImageIdx)        = [];
 
 save([dataFolderPath, 'cFeaturesName'], 'cFeaturesName');
-save([dataFolderPath, 'tRefFeaturesCoord'], 'tRefFeaturesCoord');
-save([dataFolderPath, 'tRefImages'], 'tRefImages');
+save([dataFolderPath, 'tTrainFeaturesCoord'], 'tTrainFeaturesCoord');
+save([dataFolderPath, 'tTrainImages'], 'tTrainImages');
+save([dataFolderPath, 'mTrainFeatureFlag'], 'mTrainFeatureFlag');
+
+mTrainFeatureFlag   = ones([numFeatures, numImages]);
+tTrainFeaturesCoord = tTrainFeaturesCoordValid;
+tTrainImages        = tTrainImagesValid;
+
+save([dataFolderPath, 'tTrainFeaturesCoordValid'], 'tTrainFeaturesCoord');
+save([dataFolderPath, 'tTrainImagesValid'], 'tTrainImages');
+save([dataFolderPath, 'mTrainFeatureFlagValid'], 'mTrainFeatureFlag');
 
 
 %% Restore Defaults

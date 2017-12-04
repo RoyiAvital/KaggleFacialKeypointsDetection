@@ -37,7 +37,7 @@ imageDataIdx = 2; %<! First Index - Image Index
 cRawData    = csvimport([dataFolderPath, testDataFileName]);
 numImages   = size(cRawData, 1) - 1; %<! Header row
 
-tTestImage          = zeros([numRows, numCols, numImages], 'single'); %<! Data is in UINT8
+tTestImages = zeros([numRows, numCols, numImages], 'single'); %<! Data is in UINT8
 
 runTime = 0;
 
@@ -50,7 +50,7 @@ for ii = 1:numImages
             for iRow = 1:numRows
                 for jCol = 1:numCols
                     pxIdx = ((iRow - 1) * numCols) + jCol;
-                    tTestImage(iRow, jCol, ii) = single(str2double(cImageData{pxIdx})) / 255;
+                    tTestImages(iRow, jCol, ii) = single(str2double(cImageData{pxIdx})) / 255;
                 end
             end
         end
@@ -64,7 +64,7 @@ for ii = 1:numImages
     disp([' ']);
 end
 
-save([dataFolderPath, 'tTestImage'], 'tTestImage');
+save([dataFolderPath, 'tTestImages'], 'tTestImages');
 
 
 %% Restore Defaults
