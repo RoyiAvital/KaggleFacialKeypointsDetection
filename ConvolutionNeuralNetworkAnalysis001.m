@@ -27,6 +27,7 @@ figureCounterSpec   = '%04d';
 addpath(genpath('./AuxiliaryFunctions'));
 
 dataFolderPath              = 'Data/';
+netFolderPath               = 'Data/';
 trainImageFileName          = 'tTrainImagesValid.mat'; %<! tTrainImages
 trainFeaturesCoordFileName  = 'tTrainFeaturesCoordValid.mat'; %<! tTrainFeaturesCoord
 featuresNameFileName        = 'cFeaturesName.mat';
@@ -43,185 +44,88 @@ load([dataFolderPath, featuresNameFileName]); %<! cFeaturesName
 %% Training Settings
 
 normalizeData       = OFF;
-dataAugmentation    = ON;
-netLayerModelIdx    = 2;
+dataAugmentation    = OFF;
+netLayerModelIdx    = 1;
+validRatio          = 0.1;
 
 
-generateReflectedImages = OFF;
-normalizeImage          = ON;
+%% Test Data
 
-% Local Binary Pattern (LPB) Descriptor Settings
-numNeighbors    = 8;
-patternRadius   = 1;
-rotVariantFlag  = FALSE;
-cellSize        = 8;
+numRows     = size(tTrainImages, 1);
+numCols     = size(tTrainImages, 2);
+numChannels = 1;
+numSamples  = size(tTrainImages, 3);
 
-% Neural Network Settings
-vHiddenLayesSize    = [100, 25, 10];
-% trainFcn            = 'trainrp'; %<! Resilient Backpropagation
-trainFcn            = 'trainscg'; %<! Scaled Conjugate Gradient
-% trainFcn            = 'traingdx'; %<! Variable Learning Rate Gradient Descent
-% trainFcn            = 'traingdm'; %<! Gradient Descent with Momentum
-% trainFcn            = 'traingd'; %<! Gradient Descent
-% transferFcn         = 'tansig';
-transferFcn         = 'logsig';
-% transferFcn         = 'poslin'; %<! RELU
-weightsRegFctr      = 0.035;
-numFails            = 500;
-numEpochs           = 2500;
-useGpu              = OFF;
+% Data Shape - Height, Width, Number of Channels, Number of Samples
+mImageData = reshape(tTrainImages, [numRows, numCols, numChannels, numSamples]);
 
-trainRatio      = 0.80;
-validationRatio = 0.2;
-testRatio       = 0.0;
+meanVal = mean(mImageData(:));
+stdVal = std(mImageData(:));
 
-% Test Data
-runTest = ON;
-
-
-%% Data Parameters & Pre Processing
-
-numFeatures = size(tRefFeaturesCoord, 1);
-numCoord    = size(tRefFeaturesCoord, 2);
-numImages   = size(tRefFeaturesCoord, 3);
-numRows     = size(tRefImages, 1);
-numCols     = size(tRefImages, 2);
-
-if(generateReflectedImages == ON)
-    tRefImages(:, :, (2 * numImages))           = 0;
-    tRefFeaturesCoord(:, :, (2 * numImages))    = 0;
-    
-    for ii = 1:numImages
-        tRefImages(:, :, (ii + numImages))          = fliplr(tRefImages(:, :, ii));
-        tRefFeaturesCoord(:, 1, (ii + numImages))   = (numCols + 1) - tRefFeaturesCoord(:, 1, ii);
-        tRefFeaturesCoord(:, 2, (ii + numImages))   = tRefFeaturesCoord(:, 2, ii);
-    end
-    
-%     figure();
-%     imshow(tRefImages(:, :, ii));
-%     hold('on');
-%     plot(tRefFeaturesCoord(:, 1, ii), tRefFeaturesCoord(:, 2, ii), '*');
-%     
-%     figure();
-%     imshow(tRefImages(:, :, (ii + numImages)));
-%     hold('on');
-%     plot(tRefFeaturesCoord(:, 1, (ii + numImages)), tRefFeaturesCoord(:, 2, (ii + numImages)), '*');
-    
-    numImages = 2 * numImages;
+if(normalizeData == ON)
+    mImageData = (mImageData - meanVal) / stdVal;
 end
 
-if(normalizeImage == ON)
-    for ii = 1:numImages
-        mRefImage = tRefImages(:, :, ii);
-        mRefImage = (mRefImage - min(mRefImage(:))) ./ (max(mRefImage(:)) - min(mRefImage(:)));
-        tRefImages(:, :, ii) = mRefImage;
-    end
+vY = tTrainFeaturesCoord(1, 1, :); %<! Regression response
+vY = reshape(vY, [numSamples, 1]);
+
+mTrainData = mImageData(:, :, :, 1:2000);
+vYTrain = vY(1:2000);
+
+mValidationData = mImageData(:, :, :, 2001:numSamples);
+vYValidation    = vY(2001:numSamples);
+
+if(dataAugmentation == ON)
+    imageSource = augmentedImageSource([numRows, numCols], mTrainData, vYTrain, 'DataAugmentation', imageDataAugmenter('RandXReflection', ON));
+else
+    imageSource = augmentedImageSource([numRows, numCols], mTrainData, vYTrain);
 end
 
 
-%% Extract LPB Features
+%% Define Network
 
-tLpbDescriptor = ExtractLpbDescriptor(tRefImages, numNeighbors, patternRadius, rotVariantFlag, cellSize, ON);
+hNetLayerModel = SelectNetLayerModel(netLayerModelIdx, numRows, numCols, numChannels);
 
-
-%% Build Neural Network
-
-numLayers = length(vHiddenLayesSize);
-
-hRegNet = fitnet(vHiddenLayesSize, trainFcn);
-
-for ii = 1:numLayers
-    hRegNet.layers{ii}.transferFcn = transferFcn;
-end
-
-hRegNet.performParam.regularization = weightsRegFctr;
-
-hRegNet.trainParam.max_fail = numFails;
-hRegNet.trainParam.epochs   = numEpochs;
-
-hRegNet.divideParam.trainRatio  = trainRatio;
-hRegNet.divideParam.valRatio    = validationRatio;
-hRegNet.divideParam.testRatio   = testRatio;
+% Pre Processing
 
 
-%% Train the Network
+%% Training
 
-mDataSamples    = reshape(tRefImages(:, :, :), [(numRows * numCols), numImages]); %<! Each Example as a Column
-mDataSamples    = [mDataSamples; permute(tLpbDescriptor, [2, 3, 1])];
-mRegVal         = reshape(tRefFeaturesCoord ./ [numCols, numRows], [(numCoord * numFeatures), numImages]);
+% trainingOptions = trainingOptions('sgdm',...
+%     'MaxEpochs', 3, ...
+%     'Verbose', true,...
+%     'Plots', 'training-progress');
 
-% Configure Net
-hRegNet = configure(hRegNet, mDataSamples, mRegVal);
+trainingOptions = trainingOptions('sgdm', ...
+    'InitialLearnRate', 0.00025, ...
+    'LearnRateSchedule', 'piecewise', ...
+    'LearnRateDropFactor', 0.99, ...
+    'LearnRateDropPeriod', 2, ...
+    'L2Regularization', 0.00001, ...
+    'MaxEpochs', 500, ...
+    'MiniBatchSize', 200, ...
+    'Momentum', 0.65, ...
+    'Shuffle', 'every-epoch', ...
+    'ValidationData', {mValidationData, vYValidation}, ...
+    'ValidationFrequency', 50, ...
+    'ValidationPatience', 5000, ...
+    'Verbose', true, ...
+    'VerboseFrequency', 50, ...
+    'Plots', 'training-progress');
 
-% Trin Net
-switch(useGpu)
-    case(OFF)
-        [hRegNet, sTrainRecord] = train(hRegNet, mDataSamples, mRegVal);
-    case(ON)
-        [hRegNet, sTrainRecord] = train(hRegNet, mDataSamples, mRegVal, 'useGPU', 'yes');
-end
-
-trainPerfString = ['Train_RMS_', num2str(round(sTrainRecord.best_perf * 1e5), '%03d')];
-validPerfString = ['Validation_RMS_', num2str(round(sTrainRecord.best_vperf * 1e5), '%03d')];
-testPerfString  = ['Test_RMS_', num2str(round(sTrainRecord.best_tperf * 1e5), '%03d')];
-
-save([dataFolderPath, 'RegNetData_', trainPerfString, '_', validPerfString, '_', testPerfString], 'hRegNet', 'sTrainRecord');
-
-
-%% Performance Analysis
-
-% Display Training
-figure();
-plotperform(sTrainRecord);
-
-% Display Train Result
-imageIdx    = randi([1, numImages], [1, 1]);
-mTestImage  = tRefImages(:, :, imageIdx);
-
-mPredFeatureCoord = hRegNet([mTestImage(:); ExtractLpbDescriptor(mTestImage, numNeighbors, patternRadius, rotVariantFlag, cellSize, ON).']);
-mPredFeatureCoord = reshape(mPredFeatureCoord, [numFeatures, 2]);
-mPredFeatureCoord = mPredFeatureCoord .* [numCols, numRows];
-
-figure();
-imshow(tRefImages(:, :, imageIdx));
-hold('on');
-plot(mPredFeatureCoord(:, 1), mPredFeatureCoord(:, 2), '*');
+[hCnnNet, sTrainInfo] = trainNetwork(imageSource, hNetLayerModel, trainingOptions);
 
 
-%% Prediction
+%% Save Data
 
-if(runTest)
-    
-    load([dataFolderPath, testImageFileName]); %<! tTestImage
-    numTestImages = size(tTestImage, 3);
-    
-    if(normalizeImage == ON)
-        for ii = 1:numTestImages
-            mTestImage = tTestImage(:, :, ii);
-            mTestImage = (mTestImage - min(mTestImage(:))) ./ (max(mTestImage(:)) - min(mTestImage(:)));
-            tTestImage(:, :, ii) = mTestImage;
-        end
-    end
-    
-    tLpbDescriptor = ExtractLpbDescriptor(tTestImage, numNeighbors, patternRadius, rotVariantFlag, cellSize, OFF);
-    
-    mDataSamples    = reshape(tTestImage, [(numRows * numCols), numTestImages]); %<! Each Example as a Column
-    mDataSamples    = [mDataSamples; permute(tLpbDescriptor, [2, 3, 1])];
-    
-    tPredtFeaturesCoord = hRegNet(mDataSamples);
-    tPredtFeaturesCoord = reshape(tPredtFeaturesCoord, [numFeatures, numCoord, numTestImages]);
-    tPredtFeaturesCoord = tPredtFeaturesCoord .* [numCols, numRows];
-    
-    % Display Test Result
-    imageIdx    = randi([1, numTestImages], [1, 1]);
-    figure();
-    imshow(tTestImage(:, :, imageIdx));
-    hold('on');
-    plot(tPredtFeaturesCoord(:, 1, imageIdx), tPredtFeaturesCoord(:, 2, imageIdx), '*');
-    
-    save([dataFolderPath, 'RegNetData_', trainPerfString, '_', validPerfString, '_', testPerfString], 'hRegNet', 'sTrainRecord', 'tPredtFeaturesCoord');
-    
-end
+sTrainParams.subStreamNumber    = subStreamNumber;
+sTrainParams.normalizeData      = normalizeData;
+sTrainParams.netLayerModelIdx   = netLayerModelIdx;
+sTrainParams.dataAugmentation   = dataAugmentation;
+sTrainParams.meanVal            = meanVal;
+sTrainParams.stdVal             = stdVal;
+
+save([netFolderPath, 'hNetModel', num2str(netLayerModelIdx, '%03d')], 'hCnnNet', 'sTrainInfo', 'trainingOptions', 'sTrainParams');
 
 
 %% Restore Defaults

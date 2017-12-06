@@ -7,58 +7,38 @@ switch(netModelIdx)
         hNetModel = [
                         imageInputLayer([numRows, numCols, numChannels])
                         
-                        % Input is [28 x 28 x 1]
-                        batchNormalizationLayer()
+                        % Input is [96 x 96 x 1]
+%                         batchNormalizationLayer()
                         % (Kernel Size, Num Filters)
                         convolution2dLayer(5, 16, 'Padding', 0)
                         maxPooling2dLayer(2, 'Stride', 2)
-                        leakyReluLayer()
+                        reluLayer()
 
-                        % Input is [12 x 12 x 16]
-                        batchNormalizationLayer()
+                        % Input is [46 x 46 x 16]
+%                         batchNormalizationLayer()
                         convolution2dLayer(3, 32, 'Padding', 0)
                         maxPooling2dLayer(2, 'Stride', 2)
-                        leakyReluLayer()
+                        reluLayer()
 
-                        % Input is [5 x 5 x 32]
-                        batchNormalizationLayer()
+                        % Input is [22 x 22 x 32]
+%                         batchNormalizationLayer()
                         convolution2dLayer(3, 64, 'Padding', 0)
                         leakyReluLayer()
 
-                        % Input is [5 x 5 x 64]
+                        % Input is [20 x 20 x 64]
                         fullyConnectedLayer(64)
                         leakyReluLayer()
                         fullyConnectedLayer(10)
-                        softmaxLayer()
-                        classificationLayer()];
+                        reluLayer()
+                        fullyConnectedLayer(1)
+                        regressionLayer()];
     case(2)
         hNetModel = [
                         imageInputLayer([numRows, numCols, numChannels])
-    
-                        % (Kernel Size, Num Filters)
-                        convolution2dLayer(5, 50, 'Padding', 0)
-                        maxPooling2dLayer(2, 'Stride', 2)
-                        reluLayer()
-                        batchNormalizationLayer()
-
-                        convolution2dLayer(3, 40, 'Padding', 1)
-                        maxPooling2dLayer(2, 'Stride', 2)
-                        reluLayer()
-                        batchNormalizationLayer()
-
-                        convolution2dLayer(3, 30, 'Padding', 1)
-                        reluLayer()
-                        batchNormalizationLayer()
-
-                        fullyConnectedLayer(48)
-                        leakyReluLayer()
-                        dropoutLayer(0.1)
-                        fullyConnectedLayer(32)
-                        leakyReluLayer()
-                        dropoutLayer(0.1)
-                        fullyConnectedLayer(10)
-                        softmaxLayer()
-                        classificationLayer()];
+                        convolution2dLayer(12,25)
+                        reluLayer
+                        fullyConnectedLayer(1)
+                        regressionLayer];
     case(3)
         hNetModel = [
                         imageInputLayer([numRows, numCols, numChannels])
